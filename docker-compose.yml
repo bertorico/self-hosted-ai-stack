@@ -1,0 +1,167 @@
+services:
+  litellm:
+    # Uncomment `build:` and comment `image:` to build LiteLLM from the local Dockerfile
+    # build:
+    #   context: .
+    #   args:
+    #     target: runtime
+    image: ghcr.io/berriai/litellm:main-stable
+    container_name: litellm
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    command:
+      - "--config=/app/config.yaml"
+    ports:
+      - "4000:4000"
+    environment:
+      DATABASE_URL: "postgresql://llmproxy:${POSTGRES_PASSWORD}@db:5432/litellm"
+      OLLAMA_BASE_URL: "http://ollama:11434"
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - ollama
+    networks:
+      - litellm_network
+      - ollamanet
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 http://localhost:4000/health/liveliness || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    tmpfs:
+      - /tmp
+
+  db:
+    image: postgres:16
+    container_name: litellm_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: litellm
+      POSTGRES_USER: llmproxy
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - litellm_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d litellm -U llmproxy"]
+      interval: 1s
+      timeout: 5s
+      retries: 10
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+      - /run/postgresql
+
+  prometheus:
+    image: prom/prometheus
+    container_name: litellm_prometheus
+    volumes:
+      - prometheus_data:/prometheus
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "127.0.0.1:9090:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.listen-address=:9090"
+    restart: unless-stopped
+    networks:
+      - litellm_network
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - OLLAMA_HOST=0.0.0.0:11434
+    runtime: nvidia
+    networks:
+      - ollamanet
+      - litellm_network
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  ui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: ollama-ui
+    restart: unless-stopped
+    ports:
+      - "3055:8080"
+    volumes:
+      - openwebui_data:/app/backend/data
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
+      - ENABLE_SIGNUP=${ENABLE_SIGNUP:-false}
+      - ENABLE_RAG_WEB_SEARCH=true
+      - ENABLE_IMAGE_GENERATION=false
+      - OPENAI_API_BASE_URL=http://litellm:4000/v1
+      - OPENAI_API_KEY=${LITELLM_MASTER_KEY}
+    depends_on:
+      - ollama
+      - litellm
+    networks:
+      - ollamanet
+      - litellm_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    tmpfs:
+      - /tmp
+
+networks:
+  litellm_network:
+    driver: bridge
+    internal: false
+  ollamanet:
+    external: true
+
+volumes:
+  prometheus_data:
+    driver: local
+  postgres_data:
+    name: litellm_postgres_data
+  ollama_data:
+    name: ollama_data
+  openwebui_data:
+    name: openwebui_data

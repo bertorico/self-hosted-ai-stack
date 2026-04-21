@@ -1,0 +1,22 @@
+# Secrets
+.env
+.env.local
+.env.*.local
+*.env.backup
+
+# Persisted data (local volumes if mounted outside named volumes)
+ollama/
+data/
+postgres_data/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Logs
+*.log
+logs/
