@@ -46,7 +46,7 @@ A production-ready Docker Compose stack for running a complete self-hosted AI in
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/self-hosted-ai-stack.git
+git clone https://github.com/bertorico/self-hosted-ai-stack.git
 cd self-hosted-ai-stack
 ```
 
